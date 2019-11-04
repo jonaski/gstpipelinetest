@@ -18,9 +18,13 @@ typedef struct _CustomData {
   GstElement *probeconverter;
   GstElement *audiosink;
   GstElement *probesink;
+  int audio_buffer_received;
+  int probe_buffer_received;
 } CustomData;
 
 static void pad_added_handler(GstElement *src, GstPad *pad, CustomData *data);
+static GstPadProbeReturn probe_buffer_cb(GstPad *pad, GstPadProbeInfo *info, CustomData *data);
+static GstPadProbeReturn audio_buffer_cb(GstPad *pad, GstPadProbeInfo *info, CustomData *data);
 
 int main(int argc, char *argv[]) {
 
@@ -72,6 +76,8 @@ int main(int argc, char *argv[]) {
   data.probequeue = gst_element_factory_make("queue2", "probequeue");
   data.audioconverter = gst_element_factory_make("audioconvert", "audioconverter");
   data.probeconverter = gst_element_factory_make("audioconvert", "probeconverter");
+  data.audio_buffer_received = 0;
+  data.probe_buffer_received = 0;
 
   if (!data.probesink ||
       !data.audiosink ||
@@ -137,13 +143,25 @@ int main(int argc, char *argv[]) {
   gst_element_link(data.probeconverter, data.probesink);
   gst_element_link(data.audioconverter, data.audiosink);
 
+  // Add probes
+  {
+    GstPad *pad = gst_element_get_static_pad(data.probequeue, "src");
+    gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, (GstPadProbeCallback) probe_buffer_cb, &data, nullptr);
+    gst_object_unref(pad);
+  }
+  {
+    GstPad *pad = gst_element_get_static_pad(data.audioqueue, "src");
+    gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, (GstPadProbeCallback) audio_buffer_cb, &data, nullptr);
+    gst_object_unref(pad);
+  }
+
   // Set playbin's sink to be our costum audio-sink.
   g_object_set(GST_OBJECT(data.pipeline), "audio-sink", data.audiobin, nullptr);
 
   // Start playing
-  GstStateChangeReturn ret = gst_element_set_state (data.pipeline, GST_STATE_PLAYING);
+  GstStateChangeReturn ret = gst_element_set_state(data.pipeline, GST_STATE_PLAYING);
   if (ret == GST_STATE_CHANGE_FAILURE) {
-    g_printerr ("Unable to set the pipeline to the playing state.\n");
+    g_printerr("Unable to set the pipeline to the playing state.\n");
     gst_object_unref (data.pipeline);
     return -1;
   }
@@ -158,9 +176,9 @@ int main(int argc, char *argv[]) {
     if (msg) {
       GError *err;
       gchar *debug_info;
-      switch(GST_MESSAGE_TYPE (msg)) {
+      switch(GST_MESSAGE_TYPE(msg)) {
         case GST_MESSAGE_ERROR:
-          gst_message_parse_error (msg, &err, &debug_info);
+          gst_message_parse_error(msg, &err, &debug_info);
           g_printerr("Error received from element %s: %s\n", GST_OBJECT_NAME (msg->src), err->message);
           g_printerr("Debugging information: %s\n", debug_info ? debug_info : "none");
           g_clear_error(&err);
@@ -173,16 +191,16 @@ int main(int argc, char *argv[]) {
           break;
         case GST_MESSAGE_STATE_CHANGED:
           /* We are only interested in state-changed messages from the pipeline */
-          if (GST_MESSAGE_SRC (msg) == GST_OBJECT (data.pipeline)) {
+          if (GST_MESSAGE_SRC(msg) == GST_OBJECT(data.pipeline)) {
             GstState old_state, new_state, pending_state;
-            gst_message_parse_state_changed (msg, &old_state, &new_state, &pending_state);
-            g_print("Pipeline state changed from %s to %s:\n", gst_element_state_get_name (old_state), gst_element_state_get_name (new_state));
+            gst_message_parse_state_changed(msg, &old_state, &new_state, &pending_state);
+            g_print("Pipeline state changed from %s to %s:\n", gst_element_state_get_name(old_state), gst_element_state_get_name(new_state));
           }
           break;
         default:
           break;
       }
-      gst_message_unref (msg);
+      gst_message_unref(msg);
     }
   }
   while (!terminate);
@@ -233,10 +251,47 @@ static void pad_added_handler(GstElement *src, GstPad *new_pad, CustomData *data
   // Attempt the link
   GstPadLinkReturn ret = gst_pad_link(new_pad, sink_pad);
   if (GST_PAD_LINK_FAILED(ret)) {
-    g_print ("Type is '%s' but link failed.\n", new_pad_type);
+    g_print("Type is '%s' but link failed.\n", new_pad_type);
   }
   else {
-    g_print ("Link succeeded (type '%s').\n", new_pad_type);
+    g_print("Link succeeded (type '%s').\n", new_pad_type);
   }
+
+}
+
+static GstPadProbeReturn probe_buffer_cb(GstPad *pad, GstPadProbeInfo *info, CustomData *data) {
+
+  GstCaps *caps = gst_pad_get_current_caps(pad);
+  GstStructure *structure = gst_caps_get_structure(caps, 0);
+  const gchar *format = gst_structure_get_string(structure, "format");
+
+  ++data->probe_buffer_received;
+  if (data->probe_buffer_received >= 40) data->probe_buffer_received = 1;
+
+  if (data->probe_buffer_received == 1) {
+    data->probe_buffer_received = true;
+    g_print("Probe buffer is %s\n", format);
+  }
+
+  return GST_PAD_PROBE_OK;
+
+}
+
+
+static GstPadProbeReturn audio_buffer_cb(GstPad *pad, GstPadProbeInfo *info, CustomData *data) {
+
+  GstCaps *caps = gst_pad_get_current_caps(pad);
+  GstStructure *structure = gst_caps_get_structure(caps, 0);
+  const gchar *format = gst_structure_get_string(structure, "format");
+
+  ++data->audio_buffer_received;
+  if (data->audio_buffer_received >= 40) data->audio_buffer_received = 1;
+
+  if (data->audio_buffer_received == 1) {
+    data->audio_buffer_received = true;
+    g_print("Audio buffer is %s\n", format);
+  }
+
+  return GST_PAD_PROBE_OK;
 
 }

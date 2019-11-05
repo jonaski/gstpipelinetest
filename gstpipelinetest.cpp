@@ -269,7 +269,6 @@ static GstPadProbeReturn probe_buffer_cb(GstPad *pad, GstPadProbeInfo *info, Cus
   if (data->probe_buffer_received >= 40) data->probe_buffer_received = 1;
 
   if (data->probe_buffer_received == 1) {
-    data->probe_buffer_received = true;
     g_print("Probe buffer is %s\n", format);
   }
 
@@ -288,7 +287,6 @@ static GstPadProbeReturn audio_buffer_cb(GstPad *pad, GstPadProbeInfo *info, Cus
   if (data->audio_buffer_received >= 40) data->audio_buffer_received = 1;
 
   if (data->audio_buffer_received == 1) {
-    data->audio_buffer_received = true;
     g_print("Audio buffer is %s\n", format);
   }
 

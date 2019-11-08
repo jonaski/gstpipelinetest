@@ -1,6 +1,9 @@
 // Compile with:
 // gcc -o gstpipelinetest gstpipelinetest.cpp -I /usr/include/glib-2.0/ -I /usr/include/gstreamer-1.0/ -I /usr/lib64/glib-2.0/include -lglib-2.0 -lgobject-2.0 -lgstreamer-1.0
 
+// Command line:
+// gst-launch-1.0 uridecodebin uri=file:///home/jonas/temp/Southern_Cross.flac ! tee name=t t. ! queue ! audioconvert ! audio/x-raw,format=S24LE ! alsasink device=hw:0,0 t. ! queue ! audioconvert ! audio/x-raw,format=S16LE ! fakesink
+
 #include <gst/gst.h>
 
 static const char alsasink_device_[] = "hw:0,0";
@@ -122,8 +125,7 @@ int main(int argc, char *argv[]) {
   // Let the audio output of the tee, autonegotiate the format:
   // audioqueue --> audioconverter
   {
-    GstCaps *caps = gst_caps_new_empty_simple("audio/x-raw");
-    //GstCaps *caps = gst_caps_new_any();
+    GstCaps *caps = gst_caps_new_simple("audio/x-raw", "format", G_TYPE_STRING, "S24LE", nullptr);
     gst_element_link_filtered(data.audioqueue, data.audioconverter, caps);
     gst_caps_unref(caps);
   }
@@ -132,7 +134,6 @@ int main(int argc, char *argv[]) {
   // probequeue --> probeconverter
   {
     GstCaps *caps = gst_caps_new_simple("audio/x-raw", "format", G_TYPE_STRING, "S16LE", nullptr);
-    //GstCaps *caps = gst_caps_new_empty_simple("audio/x-raw");
     gst_element_link_filtered(data.probequeue, data.probeconverter, caps);
     gst_caps_unref(caps);
   }
